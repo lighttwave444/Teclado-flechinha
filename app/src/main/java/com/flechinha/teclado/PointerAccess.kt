@@ -1,6 +1,7 @@
 package com.flechinha.teclado
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.accessibilityservice.GestureDescription
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -37,6 +38,19 @@ class PointerAccess : AccessibilityService() {
     private var anchor = 0
     private var lastEnd = -1
 
+    /** seta livre (icone no painel de atalhos): a tela inteira vira touchpad */
+    var free: FreePointer? = null
+    val freeOn: Boolean get() = free != null
+
+    fun toggleFree(): Boolean {
+        val f = free
+        if (f != null) { f.hide(); free = null; return false }
+        val n = FreePointer(this)
+        if (!n.show()) return false
+        free = n
+        return true
+    }
+
     private var margin = 0
     private var bestN: AccessibilityNodeInfo? = null
     private var bestD = 0L
@@ -47,22 +61,37 @@ class PointerAccess : AccessibilityService() {
         margin = (48 * resources.displayMetrics.density).toInt()
     }
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
-        if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke() }
+        if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke(); free?.refresh() }
     }
     override fun onInterrupt() { }
-    override fun onUnbind(i: Intent?): Boolean { inst = null; return super.onUnbind(i) }
-    override fun onDestroy() { inst = null; super.onDestroy() }
+    override fun onUnbind(i: Intent?): Boolean { free?.hide(); free = null; inst = null; return super.onUnbind(i) }
+    override fun onDestroy() { free?.hide(); free = null; inst = null; super.onDestroy() }
 
     // ---------- clique ----------
 
     /** toque na tela, no ponto onde esta a ponta da seta (alcanca onde o dedo nao chega) */
-    fun click(x: Int, y: Int): Boolean {
+    fun click(x: Int, y: Int, done: (() -> Unit)? = null): Boolean {
+        val p = Path()
+        p.moveTo(x.toFloat(), y.toFloat())
+        return gesture(p, 60L, done)
+    }
+
+    /** arrastar o dedo de um ponto a outro (rolagem) */
+    fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long, done: (() -> Unit)? = null): Boolean {
+        val p = Path()
+        p.moveTo(x1, y1); p.lineTo(x2, y2)
+        return gesture(p, ms, done)
+    }
+
+    private fun gesture(p: Path, ms: Long, done: (() -> Unit)?): Boolean {
         if (Build.VERSION.SDK_INT < 24) return false
         return try {
-            val p = Path()
-            p.moveTo(x.toFloat(), y.toFloat())
-            val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build()
-            dispatchGesture(g, null, null)
+            val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, ms)).build()
+            val cb = if (done == null) null else object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) { done() }
+                override fun onCancelled(gestureDescription: GestureDescription?) { done() }
+            }
+            dispatchGesture(g, cb, null)
         } catch (e: Exception) { false }
     }
 
@@ -87,7 +116,7 @@ class PointerAccess : AccessibilityService() {
             return true
         }
         // o app nao informa onde cada letra esta: marca o bloco de texto inteiro
-        if (n.isEditable) { selOn(n, 0, t.length); return true }
+        if (n.isEditable) { txt = t; anchor = 0; lastEnd = t.length; selOn(n, 0, t.length); return true }
         val b = Rect()
         n.getBoundsInScreen(b)
         virtual = true; whole = true; nodeRect = RectF(b)
@@ -123,6 +152,17 @@ class PointerAccess : AccessibilityService() {
             if (r.height() > 0f && r.width() > 0f) out.add(r)
         }
         return out
+    }
+
+    /** copia o que esta marcado agora (campo ou mensagem), sem desmarcar */
+    fun copySelection(): Boolean {
+        val t: String = if (virtual) (vText ?: "")
+            else if (txt.isEmpty() || lastEnd < 0) ""
+            else txt.substring(minOf(anchor, lastEnd).coerceIn(0, txt.length), maxOf(anchor, lastEnd).coerceIn(0, txt.length))
+        if (t.isEmpty()) return false
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("texto", t))
+        return true
     }
 
     /** copia o texto marcado de uma mensagem; false se nao havia marcacao propria */

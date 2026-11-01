@@ -46,6 +46,9 @@ class MainActivity : Activity() {
         root.addView(button("4. Ativar acessibilidade (Ponteiro)" + (if (PointerAccess.inst != null) "  ✓" else ""), false) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
+        root.addView(button("5. Como pôr o ícone Seta no painel de atalhos", false) {
+            android.widget.Toast.makeText(this, "Puxe o painel de atalhos, toque em editar (lápis) e arraste o ícone Seta para cima. Depois é só tocar nele para ligar e desligar a seta na tela toda.", android.widget.Toast.LENGTH_LONG).show()
+        })
         row("Aparência", listOf("dark" to "Escuro", "light" to "Claro", "auto" to "Automático"), Cfg.mode(this)) { c.edit().putString("mode", it).apply() }
         root.addView(title("Cor de destaque"))
         val cr = LinearLayout(this)

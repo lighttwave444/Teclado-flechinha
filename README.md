@@ -25,3 +25,7 @@ v6: toque rapido no modo ponteiro clica onde a seta esta (abrir, voltar, qualque
 A marcacao de texto agora acha o texto mais perto da seta em qualquer janela e, se o app nao informa
 onde cada letra esta, marca o bloco de texto inteiro. Se o clique nao funcionar depois de atualizar,
 desligue e ligue de novo a acessibilidade do Ponteiro.
+
+v7: icone "Seta" no painel de atalhos. Ligado, a tela inteira vira touchpad (mesmo sem teclado):
+arrastar 1 dedo anda com a seta; dois toques clicam; segurar e arrastar marca o texto e copia ao soltar;
+arrastar com 2 dedos rola a tela onde a seta esta. Desligue pelo mesmo icone.

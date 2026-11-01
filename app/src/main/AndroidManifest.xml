@@ -13,6 +13,10 @@
             <intent-filter><action android:name="android.view.InputMethod"/></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method"/>
         </service>
+        <service android:name=".PointerTile" android:label="Seta" android:icon="@drawable/ic_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
+        </service>
         <service android:name=".PointerAccess" android:label="Ponteiro do Teclado Flechinha"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="false">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
