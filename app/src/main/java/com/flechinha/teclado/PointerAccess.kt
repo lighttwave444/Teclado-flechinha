@@ -1,6 +1,9 @@
 package com.flechinha.teclado
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.graphics.RectF
@@ -16,30 +19,41 @@ import android.view.accessibility.AccessibilityNodeInfo
 class PointerAccess : AccessibilityService() {
     companion object { @Volatile var inst: PointerAccess? = null }
 
+    /** avisado quando a marcacao some sozinha (a tela rolou) */
+    var onClear: (() -> Unit)? = null
+
     private var node: AccessibilityNodeInfo? = null
+    private var txt = ""
+    private var virtual = false      // texto que o app nao deixa marcar (mensagens): marcamos e copiamos por conta propria
+    private var vText: String? = null
+    private var vS = 0
+    private var vE = 0
     private var rects: Array<RectF?> = emptyArray()
     private var anchor = 0
     private var lastEnd = -1
 
     override fun onServiceConnected() { super.onServiceConnected(); inst = this }
-    override fun onAccessibilityEvent(e: AccessibilityEvent?) { }
+    override fun onAccessibilityEvent(e: AccessibilityEvent?) {
+        if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke() }
+    }
     override fun onInterrupt() { }
     override fun onUnbind(i: Intent?): Boolean { inst = null; return super.onUnbind(i) }
     override fun onDestroy() { inst = null; super.onDestroy() }
 
     /** comeca a selecao na letra que esta na ponta da seta */
     fun begin(x: Int, y: Int): Boolean {
-        end()
+        end(); clearVirtual()
         val root = rootInActiveWindow ?: return false
         val n = pick(root, x, y) ?: return false
-        val len = n.text?.length ?: 0
-        if (len == 0) return false
-        val r = loadRects(n, len)
+        val t = n.text?.toString() ?: return false
+        if (t.isEmpty()) return false
+        val r = loadRects(n, t.length)
         if (r.isEmpty()) return false
-        node = n; rects = r
+        node = n; rects = r; txt = t
         anchor = indexAt(x, y)
         lastEnd = anchor
-        sel(anchor, anchor)
+        virtual = !n.isEditable
+        if (virtual) { vS = anchor; vE = anchor; vText = "" } else sel(anchor, anchor)
         return true
     }
 
@@ -49,10 +63,37 @@ class PointerAccess : AccessibilityService() {
         val i = indexAt(x, y)
         if (i == lastEnd) return
         lastEnd = i
-        sel(anchor, i)
+        if (virtual) {
+            vS = minOf(anchor, i).coerceAtMost(txt.length); vE = maxOf(anchor, i).coerceAtMost(txt.length)
+            vText = txt.substring(vS, vE)
+        } else sel(anchor, i)
     }
 
-    fun end() { node = null; rects = emptyArray() }
+    /** soltou o dedo: para de esticar. A marcacao de mensagens continua ate copiar */
+    fun end() { node = null; if (!virtual) rects = emptyArray() }
+
+    fun clearVirtual() { virtual = false; vText = null; vS = 0; vE = 0; rects = emptyArray() }
+
+    /** retangulos das letras marcadas (so para texto de mensagem) */
+    fun highlight(): List<RectF> {
+        if (!virtual || vS >= vE) return emptyList()
+        val out = ArrayList<RectF>()
+        for (i in vS until minOf(vE, rects.size)) {
+            val r = rects[i] ?: continue
+            if (r.height() > 0f && r.width() > 0f) out.add(r)
+        }
+        return out
+    }
+
+    /** copia o texto marcado de uma mensagem; false se nao havia marcacao propria */
+    fun copyVirtual(): Boolean {
+        val t = vText
+        if (!virtual || t.isNullOrEmpty()) return false
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("texto", t))
+        clearVirtual()
+        return true
+    }
 
     private fun sel(a: Int, b: Int) {
         val n = node ?: return

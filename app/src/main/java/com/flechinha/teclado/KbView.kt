@@ -230,7 +230,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         k("Marcar", ACT, "mode") { sp = true },
         k("Tudo", ACT, "all") { sp = true },
         k("Copiar", ACT, "copy") { sp = true },
-        k("Recortar", ACT, "cut") { sp = true }
+        k("Apagar", ACT, "del") { sp = true }
     )
 
     private fun place(row: List<K>, y: Float, hh: Float) {
@@ -387,14 +387,21 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             ENTER -> { enter(); auto() }
             PTR -> {
                 pad = !pad; sel = false; px = 0f; py = 0f
+                PointerAccess.inst?.onClear = { ov.setHighlight(emptyList()) }
                 if (pad && PointerAccess.inst != null && ov.show()) selMode = false   // seta na tela: arrastar move; segurar seleciona
                 else { ov.hide(); if (pad) selMode = true }
             }
             HIDE -> svc.requestHideSelf(0)
             ACT -> when (kk.v) {
                 "all" -> menu(android.R.id.selectAll)
-                "copy" -> menu(android.R.id.copy)
-                "cut" -> menu(android.R.id.cut)
+                "copy" -> {
+                    val a = PointerAccess.inst
+                    if (a != null && a.copyVirtual()) { ov.setHighlight(emptyList()); buzz() } else menu(android.R.id.copy)
+                }
+                "del" -> {
+                    val sl = svc.currentInputConnection?.getSelectedText(0)
+                    if (sl != null && sl.isNotEmpty()) { svc.sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL); buzz() }
+                }
                 "paste" -> menu(android.R.id.paste)
                 "mode" -> selMode = !selMode
             }
@@ -456,7 +463,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     fun closePad() {
         if (!pad && !ov.showing) return
         pad = false; sel = false; selecting = false; inPad = false
-        PointerAccess.inst?.end()
+        PointerAccess.inst?.end(); PointerAccess.inst?.clearVirtual()
         ov.hide(); layoutKeys(); invalidate()
     }
 
@@ -465,6 +472,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     private fun beginScreenSel() {
         val a = PointerAccess.inst ?: return
         selecting = a.begin(ov.sx(), ov.sy())
+        ov.setHighlight(a.highlight())
         if (selecting) { sel = true; ov.setSelecting(true); buzz() }
         invalidate()
     }
@@ -473,13 +481,16 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         val n = SystemClock.uptimeMillis()
         if (n - lastExt < 45) return
         lastExt = n
-        PointerAccess.inst?.extend(ov.sx(), ov.sy())
+        val a = PointerAccess.inst ?: return
+        a.extend(ov.sx(), ov.sy())
+        ov.setHighlight(a.highlight())
     }
 
     private fun endScreenSel() {
-        if (selecting) PointerAccess.inst?.extend(ov.sx(), ov.sy())
+        val a = PointerAccess.inst
+        if (selecting && a != null) { a.extend(ov.sx(), ov.sy()); ov.setHighlight(a.highlight()) }
         selecting = false; sel = false; ov.setSelecting(false)
-        PointerAccess.inst?.end()
+        a?.end()
     }
 
     // ---------- toque ----------

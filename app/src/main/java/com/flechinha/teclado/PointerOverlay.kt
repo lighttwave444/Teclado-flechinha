@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.PixelFormat
 import android.os.Build
 import android.provider.Settings
@@ -18,6 +19,7 @@ class PointerOverlay(private val ctx: Context) {
     private var ox = 0f
     private var oy = 0f
     private val loc = IntArray(2)
+    private var hl: List<RectF> = emptyList()
 
     val showing: Boolean get() = v != null
 
@@ -29,6 +31,7 @@ class PointerOverlay(private val ctx: Context) {
         var selecting = false
         var accent = 0xFF2F7BFF.toInt()
         private val dn = c.resources.displayMetrics.density
+        private val lo = IntArray(2)
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
         private val arrow = Path().apply {
             moveTo(4f, 3f); lineTo(4f, 21f); lineTo(8.6f, 16.8f); lineTo(11.6f, 23.4f)
@@ -36,6 +39,11 @@ class PointerOverlay(private val ctx: Context) {
         }
 
         override fun onDraw(c: Canvas) {
+            if (hl.isNotEmpty()) {
+                getLocationOnScreen(lo)
+                p.style = Paint.Style.FILL; p.color = (accent and 0x00FFFFFF) or 0x66000000
+                for (r in hl) c.drawRect(r.left - lo[0], r.top - lo[1], r.right - lo[0], r.bottom - lo[1], p)
+            }
             val s = 30f * dn / 24f
             c.save(); c.translate(ox - 4 * s, oy - 3 * s); c.scale(s, s)
             p.style = Paint.Style.FILL; p.color = if (selecting) accent else 0xFFFFFFFF.toInt()
@@ -78,7 +86,7 @@ class PointerOverlay(private val ctx: Context) {
     fun hide() {
         val view = v ?: return
         try { wm?.removeView(view) } catch (e: Exception) { }
-        v = null
+        v = null; hl = emptyList()
     }
 
     fun moveBy(dx: Float, dy: Float) {
@@ -86,6 +94,8 @@ class PointerOverlay(private val ctx: Context) {
         oy = (oy + dy).coerceIn(0f, h() - 1)
         v?.invalidate()
     }
+
+    fun setHighlight(l: List<RectF>) { hl = l; v?.invalidate() }
 
     fun setSelecting(b: Boolean) { v?.let { it.selecting = b; it.invalidate() } }
 
