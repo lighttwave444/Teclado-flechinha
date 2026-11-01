@@ -49,6 +49,9 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     private val d = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val h = Handler(Looper.getMainLooper())
+    private val ov = PointerOverlay(svc)
+    private var selecting = false   // selecao em andamento na tela (servico de acessibilidade)
+    private var lastExt = 0L
     private val tfKey: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private val tfBold: Typeface = Typeface.DEFAULT_BOLD
     private var pal = Cfg.pal(ctx)
@@ -131,6 +134,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     fun reload() {
         pal = Cfg.pal(context); acc = Cfg.acc(context); speed = Cfg.speed(context); vib = Cfg.vib(context); hs = Cfg.hs(context)
         layer = ABC; pad = false; sel = false; alts = emptyList(); down = null; inPad = false
+        selecting = false; ov.hide()
         shift = 0
         auto()
         if (width > 0) { dims(width.toFloat()); buildShaders() }
@@ -381,7 +385,11 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             }
             SPACE -> { commit(" "); if (shift == 1) shift = 0; auto() }
             ENTER -> { enter(); auto() }
-            PTR -> { pad = !pad; sel = false; px = 0f; py = 0f }
+            PTR -> {
+                pad = !pad; sel = false; px = 0f; py = 0f
+                if (pad && PointerAccess.inst != null && ov.show()) selMode = false   // seta na tela: arrastar move; segurar seleciona
+                else { ov.hide(); if (pad) selMode = true }
+            }
             HIDE -> svc.requestHideSelf(0)
             ACT -> when (kk.v) {
                 "all" -> menu(android.R.id.selectAll)
@@ -435,7 +443,43 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     }
 
     private val padLong = Runnable {
-        if (inPad && !padMoved && selectWord()) { sel = true; buzz(); invalidate() }
+        if (!inPad || padMoved) return@Runnable
+        if (scr()) beginScreenSel()
+        else if (selectWord()) { sel = true; buzz(); invalidate() }
+    }
+
+    // ---------- seta na tela ----------
+
+    private fun scr() = ov.showing
+
+    /** fecha o modo ponteiro e some com a seta (teclado escondido, troca de campo...) */
+    fun closePad() {
+        if (!pad && !ov.showing) return
+        pad = false; sel = false; selecting = false; inPad = false
+        PointerAccess.inst?.end()
+        ov.hide(); layoutKeys(); invalidate()
+    }
+
+    override fun onDetachedFromWindow() { ov.hide(); super.onDetachedFromWindow() }
+
+    private fun beginScreenSel() {
+        val a = PointerAccess.inst ?: return
+        selecting = a.begin(ov.sx(), ov.sy())
+        if (selecting) { sel = true; ov.setSelecting(true); buzz() }
+        invalidate()
+    }
+
+    private fun extendScreenSel() {
+        val n = SystemClock.uptimeMillis()
+        if (n - lastExt < 45) return
+        lastExt = n
+        PointerAccess.inst?.extend(ov.sx(), ov.sy())
+    }
+
+    private fun endScreenSel() {
+        if (selecting) PointerAccess.inst?.extend(ov.sx(), ov.sy())
+        selecting = false; sel = false; ov.setSelecting(false)
+        PointerAccess.inst?.end()
     }
 
     // ---------- toque ----------
@@ -447,7 +491,8 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
                 downX = x; downY = y; lastX = x; lastY = y; accX = 0f; accY = 0f; spaceSwipe = false
                 if (pad && padRect.contains(x, y)) {
                     inPad = true; padMoved = false; px = x; py = y; buzz()
-                    if (selMode) startSel() else h.postDelayed(padLong, 320)
+                    if (scr()) { if (selMode) beginScreenSel() else h.postDelayed(padLong, 300) }
+                    else if (selMode) startSel() else h.postDelayed(padLong, 320)
                     invalidate(); return true
                 }
                 val kk = hit(keys, x, y); down = kk
@@ -462,12 +507,17 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
                 if (inPad) {
                     px = x; py = y
                     if (!padMoved && Math.hypot((x - downX).toDouble(), (y - downY).toDouble()) > 12 * d) { padMoved = true; h.removeCallbacks(padLong) }
-                    accX += x - lastX; accY += y - lastY
-                    val st = 20 * d / speed
-                    while (accX >= st) { dpad(KeyEvent.KEYCODE_DPAD_RIGHT); accX -= st }
-                    while (accX <= -st) { dpad(KeyEvent.KEYCODE_DPAD_LEFT); accX += st }
-                    while (accY >= st) { dpad(KeyEvent.KEYCODE_DPAD_DOWN); accY -= st }
-                    while (accY <= -st) { dpad(KeyEvent.KEYCODE_DPAD_UP); accY += st }
+                    if (scr()) {
+                        ov.moveBy((x - lastX) * speed, (y - lastY) * speed)
+                        if (selecting) extendScreenSel()
+                    } else {
+                        accX += x - lastX; accY += y - lastY
+                        val st = 20 * d / speed
+                        while (accX >= st) { dpad(KeyEvent.KEYCODE_DPAD_RIGHT); accX -= st }
+                        while (accX <= -st) { dpad(KeyEvent.KEYCODE_DPAD_LEFT); accX += st }
+                        while (accY >= st) { dpad(KeyEvent.KEYCODE_DPAD_DOWN); accY -= st }
+                        while (accY <= -st) { dpad(KeyEvent.KEYCODE_DPAD_UP); accY += st }
+                    }
                     invalidate()
                 } else if (alts.isNotEmpty()) {
                     down = hit(alts, x, y); invalidate()
@@ -487,7 +537,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 h.removeCallbacks(longTask); h.removeCallbacks(repTask); h.removeCallbacks(padLong); repRun = false
                 val up = e.actionMasked == MotionEvent.ACTION_UP
-                if (inPad) { inPad = false; sel = false; invalidate(); return true }
+                if (inPad) { inPad = false; endScreenSel(); sel = false; invalidate(); return true }
                 if (alts.isNotEmpty()) {
                     val s = down
                     if (up && s != null && s.type == ALT) {
@@ -568,14 +618,17 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         paint.style = Paint.Style.FILL
         paint.color = mul(pal.txt, 0.7f); paint.textAlign = Paint.Align.CENTER; paint.typeface = tfKey
         paint.textSize = maxOf(14 * d, 3.8f * cq)
-        val msg = if (sel) "Selecionando: arraste para marcar o texto"
+        val msg = if (scr()) { if (sel) "Selecionando: arraste para marcar o texto" else "Arraste para mover a seta na tela" }
+            else if (sel) "Selecionando: arraste para marcar o texto"
             else if (selMode) "Pressione e arraste para selecionar" else "Arraste para mover o cursor"
         val yy = padRect.centerY() - (paint.descent() + paint.ascent()) / 2
         c.drawText(msg, padRect.centerX(), yy - 0.9f * paint.textSize, paint)
         paint.textSize = maxOf(12 * d, 3.2f * cq)
-        c.drawText(if (selMode) "toque em Marcar para so mover o cursor" else "segure para selecionar a palavra",
+        c.drawText(
+            if (scr()) { if (selMode) "toque em Marcar para so mover a seta" else "segure parado e arraste para selecionar" }
+            else if (selMode) "toque em Marcar para so mover o cursor" else "segure para selecionar a palavra",
             padRect.centerX(), yy + 0.8f * paint.textSize, paint)
-        run {
+        if (!scr()) {
             val ic = icons[IC_PTR]
             if (ic != null) {
                 val s = 6f * cq / 24f

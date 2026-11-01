@@ -2,6 +2,7 @@ package com.flechinha.teclado
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Typeface
 import android.os.Bundle
 import android.provider.Settings
@@ -9,7 +10,9 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.*
 
 class MainActivity : Activity() {
-    override fun onCreate(s: Bundle?) { super.onCreate(s); build() }
+    override fun onCreate(s: Bundle?) { super.onCreate(s) }
+
+    override fun onResume() { super.onResume(); build() }
 
     private fun build() {
         val p = Cfg.pal(this); val acc = Cfg.acc(this); val d = resources.displayMetrics.density
@@ -35,6 +38,13 @@ class MainActivity : Activity() {
         root.addView(button("1. Ativar o teclado", false) { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) })
         root.addView(button("2. Escolher como teclado atual", false) {
             (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
+        })
+        root.addView(title("Seta que anda pela tela"))
+        root.addView(button("3. Permitir sobreposição" + (if (PointerOverlay.can(this)) "  ✓" else ""), false) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        })
+        root.addView(button("4. Ativar acessibilidade (Ponteiro)" + (if (PointerAccess.inst != null) "  ✓" else ""), false) {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
         row("Aparência", listOf("dark" to "Escuro", "light" to "Claro", "auto" to "Automático"), Cfg.mode(this)) { c.edit().putString("mode", it).apply() }
         root.addView(title("Cor de destaque"))

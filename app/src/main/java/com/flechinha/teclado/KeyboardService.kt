@@ -24,6 +24,12 @@ class KeyboardService : InputMethodService() {
         kb?.reload()
     }
 
+    override fun onFinishInputView(finishingInput: Boolean) { super.onFinishInputView(finishingInput); kb?.closePad() }
+
+    override fun onWindowHidden() { super.onWindowHidden(); kb?.closePad() }
+
+    override fun onDestroy() { kb?.closePad(); super.onDestroy() }
+
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         kb?.caps()

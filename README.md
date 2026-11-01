@@ -12,3 +12,8 @@ Botoes Tudo, Copiar, Recortar e Colar ficam ativos.
 
 Compilar: envie esta pasta para um repositorio no GitHub (branch main). Em Actions, "Build APK" gera o arquivo
 TecladoFlechinha-apk (app-debug.apk). Se a instalacao por cima falhar, desinstale a versao antiga antes.
+
+Seta na tela (v4): no app, toque em "3. Permitir sobreposicao" e "4. Ativar acessibilidade (Ponteiro)".
+Com as duas ligadas, o modo ponteiro mostra uma seta por cima do app inteiro. Arraste na area de toque do teclado
+para andar com a seta; segure parado e arraste para marcar o texto a partir da ponta da seta.
+Sem as permissoes, o modo ponteiro continua como antes (mexe o cursor do campo).
