@@ -1,20 +1,23 @@
 package com.flechinha.teclado
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 
 /**
- * Servico de acessibilidade: descobre qual letra esta embaixo da ponta da seta e marca o texto dali.
- * Funciona em campos de texto (e em textos selecionaveis) do app que esta na tela.
+ * Servico de acessibilidade: descobre o texto que esta embaixo da ponta da seta, marca, e tambem
+ * faz o "clique" da seta em botoes e links de qualquer app.
  */
 class PointerAccess : AccessibilityService() {
     companion object { @Volatile var inst: PointerAccess? = null }
@@ -25,6 +28,8 @@ class PointerAccess : AccessibilityService() {
     private var node: AccessibilityNodeInfo? = null
     private var txt = ""
     private var virtual = false      // texto que o app nao deixa marcar (mensagens): marcamos e copiamos por conta propria
+    private var whole = false        // sem posicao das letras: marca o bloco de texto inteiro
+    private var nodeRect: RectF? = null
     private var vText: String? = null
     private var vS = 0
     private var vE = 0
@@ -32,7 +37,15 @@ class PointerAccess : AccessibilityService() {
     private var anchor = 0
     private var lastEnd = -1
 
-    override fun onServiceConnected() { super.onServiceConnected(); inst = this }
+    private var margin = 0
+    private var bestN: AccessibilityNodeInfo? = null
+    private var bestD = 0L
+    private var bestA = 0L
+
+    override fun onServiceConnected() {
+        super.onServiceConnected(); inst = this
+        margin = (48 * resources.displayMetrics.density).toInt()
+    }
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
         if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke() }
     }
@@ -40,20 +53,45 @@ class PointerAccess : AccessibilityService() {
     override fun onUnbind(i: Intent?): Boolean { inst = null; return super.onUnbind(i) }
     override fun onDestroy() { inst = null; super.onDestroy() }
 
-    /** comeca a selecao na letra que esta na ponta da seta */
+    // ---------- clique ----------
+
+    /** toque na tela, no ponto onde esta a ponta da seta (alcanca onde o dedo nao chega) */
+    fun click(x: Int, y: Int): Boolean {
+        if (Build.VERSION.SDK_INT < 24) return false
+        return try {
+            val p = Path()
+            p.moveTo(x.toFloat(), y.toFloat())
+            val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 60)).build()
+            dispatchGesture(g, null, null)
+        } catch (e: Exception) { false }
+    }
+
+    // ---------- selecao ----------
+
+    /** comeca a selecao no texto que esta na ponta da seta */
     fun begin(x: Int, y: Int): Boolean {
         end(); clearVirtual()
-        val root = rootInActiveWindow ?: return false
-        val n = pick(root, x, y) ?: return false
-        val t = n.text?.toString() ?: return false
+        val n = findNode(x, y) ?: return false
+        val t = textOf(n)
         if (t.isEmpty()) return false
-        val r = loadRects(n, t.length)
-        if (r.isEmpty()) return false
-        node = n; rects = r; txt = t
-        anchor = indexAt(x, y)
-        lastEnd = anchor
-        virtual = !n.isEditable
-        if (virtual) { vS = anchor; vE = anchor; vText = "" } else sel(anchor, anchor)
+        var r: Array<RectF?> = emptyArray()
+        if (!n.text.isNullOrEmpty()) r = loadRects(n, t.length)
+        var ok = false
+        for (q in r) if (q != null && q.height() > 0f && q.width() > 0f) { ok = true; break }
+        if (ok) {
+            node = n; rects = r; txt = t
+            anchor = indexAt(x, y)
+            lastEnd = anchor
+            virtual = !n.isEditable
+            if (virtual) { vS = anchor; vE = anchor; vText = "" } else sel(anchor, anchor)
+            return true
+        }
+        // o app nao informa onde cada letra esta: marca o bloco de texto inteiro
+        if (n.isEditable) { selOn(n, 0, t.length); return true }
+        val b = Rect()
+        n.getBoundsInScreen(b)
+        virtual = true; whole = true; nodeRect = RectF(b)
+        vS = 0; vE = t.length; vText = t
         return true
     }
 
@@ -72,11 +110,13 @@ class PointerAccess : AccessibilityService() {
     /** soltou o dedo: para de esticar. A marcacao de mensagens continua ate copiar */
     fun end() { node = null; if (!virtual) rects = emptyArray() }
 
-    fun clearVirtual() { virtual = false; vText = null; vS = 0; vE = 0; rects = emptyArray() }
+    fun clearVirtual() { virtual = false; whole = false; nodeRect = null; vText = null; vS = 0; vE = 0; rects = emptyArray() }
 
-    /** retangulos das letras marcadas (so para texto de mensagem) */
+    /** retangulos do que esta marcado (so para texto de mensagem) */
     fun highlight(): List<RectF> {
-        if (!virtual || vS >= vE) return emptyList()
+        if (!virtual) return emptyList()
+        if (whole) { val r = nodeRect ?: return emptyList(); return listOf(r) }
+        if (vS >= vE) return emptyList()
         val out = ArrayList<RectF>()
         for (i in vS until minOf(vE, rects.size)) {
             val r = rects[i] ?: continue
@@ -95,12 +135,42 @@ class PointerAccess : AccessibilityService() {
         return true
     }
 
-    private fun sel(a: Int, b: Int) {
-        val n = node ?: return
+    private fun sel(a: Int, b: Int) { val n = node ?: return; selOn(n, a, b) }
+
+    private fun selOn(n: AccessibilityNodeInfo, a: Int, b: Int) {
         val args = Bundle()
         args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, minOf(a, b))
         args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, maxOf(a, b))
         n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
+    }
+
+    // ---------- achar o texto na tela ----------
+
+    private fun textOf(n: AccessibilityNodeInfo): String {
+        val t = n.text?.toString()
+        if (!t.isNullOrEmpty()) return t
+        return n.contentDescription?.toString() ?: ""
+    }
+
+    /** procura em todas as janelas (de cima para baixo) o texto mais perto da ponta da seta */
+    private fun findNode(x: Int, y: Int): AccessibilityNodeInfo? {
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        try {
+            for (w in windows.sortedByDescending { it.layer }) {
+                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD || w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) continue
+                val b = Rect()
+                w.getBoundsInScreen(b)
+                if (!b.contains(x, y)) continue
+                val r = w.root ?: continue
+                roots.add(r)
+            }
+        } catch (e: Exception) { }
+        rootInActiveWindow?.let { roots.add(it) }
+        for (r in roots) {
+            val n = pick(r, x, y)
+            if (n != null) return n
+        }
+        return null
     }
 
     private fun pick(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
@@ -110,22 +180,31 @@ class PointerAccess : AccessibilityService() {
             f.getBoundsInScreen(b)
             if (b.contains(x, y)) return f
         }
-        val d = deepest(root, x, y, 0)
-        if (d != null) return d
-        return if (f != null && f.isEditable) f else null
+        bestN = null; bestD = Long.MAX_VALUE; bestA = Long.MAX_VALUE
+        scan(root, x, y, 0)
+        return bestN ?: (if (f != null && f.isEditable) f else null)
     }
 
-    private fun deepest(n: AccessibilityNodeInfo, x: Int, y: Int, depth: Int): AccessibilityNodeInfo? {
-        if (depth > 40 || !n.isVisibleToUser) return null
+    private fun scan(n: AccessibilityNodeInfo, x: Int, y: Int, depth: Int) {
+        if (depth > 40) return
         val b = Rect()
         n.getBoundsInScreen(b)
-        if (!b.contains(x, y)) return null
-        for (i in n.childCount - 1 downTo 0) {
+        val inf = Rect(b)
+        inf.inset(-margin, -margin)
+        if (!inf.contains(x, y) || !n.isVisibleToUser) return
+        for (i in 0 until n.childCount) {
             val c = n.getChild(i) ?: continue
-            val r = deepest(c, x, y, depth + 1)
-            if (r != null) return r
+            scan(c, x, y, depth + 1)
         }
-        return if ((n.text?.length ?: 0) > 0) n else null
+        if (textOf(n).isEmpty()) return
+        val dm = resources.displayMetrics
+        // descricao de bloco gigante (janela inteira) nao conta como texto
+        if (n.text.isNullOrEmpty() && b.width() >= dm.widthPixels * 0.95 && b.height() >= dm.heightPixels * 0.6) return
+        val dx = maxOf(b.left - x, 0, x - b.right).toLong()
+        val dy = maxOf(b.top - y, 0, y - b.bottom).toLong()
+        val d = dx * dx + dy * dy
+        val area = b.width().toLong() * b.height()
+        if (d < bestD || (d == bestD && area < bestA)) { bestD = d; bestA = area; bestN = n }
     }
 
     /** posicao de cada letra do texto na tela (Android 8 ou mais novo) */

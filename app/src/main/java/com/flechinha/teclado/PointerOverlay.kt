@@ -7,6 +7,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -29,6 +30,8 @@ class PointerOverlay(private val ctx: Context) {
 
     private inner class PView(c: Context) : View(c) {
         var selecting = false
+        var ringStart = 0L
+        var ringOk = true
         var accent = 0xFF2F7BFF.toInt()
         private val dn = c.resources.displayMetrics.density
         private val lo = IntArray(2)
@@ -38,7 +41,18 @@ class PointerOverlay(private val ctx: Context) {
             lineTo(14.6f, 22f); lineTo(11.6f, 15.6f); lineTo(18f, 15.6f); close()
         }
 
+        fun ring(ok: Boolean) { ringOk = ok; ringStart = SystemClock.uptimeMillis(); invalidate() }
+
         override fun onDraw(c: Canvas) {
+            val rt = SystemClock.uptimeMillis() - ringStart
+            if (ringStart > 0L && rt < 260L) {
+                val f = rt / 260f
+                p.style = Paint.Style.STROKE; p.strokeWidth = 3f * dn
+                p.color = if (ringOk) accent else 0xFFFF5555.toInt()
+                p.alpha = (255 * (1f - f)).toInt()
+                c.drawCircle(ox, oy, (10f + 26f * f) * dn, p)
+                postInvalidateOnAnimation()
+            }
             if (hl.isNotEmpty()) {
                 getLocationOnScreen(lo)
                 p.style = Paint.Style.FILL; p.color = (accent and 0x00FFFFFF) or 0x66000000
@@ -96,6 +110,9 @@ class PointerOverlay(private val ctx: Context) {
     }
 
     fun setHighlight(l: List<RectF>) { hl = l; v?.invalidate() }
+
+    /** anel na ponta da seta: azul = clique feito, vermelho = nao deu */
+    fun ring(ok: Boolean) { v?.ring(ok) }
 
     fun setSelecting(b: Boolean) { v?.let { it.selecting = b; it.invalidate() } }
 

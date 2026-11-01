@@ -52,6 +52,8 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     private val ov = PointerOverlay(svc)
     private var selecting = false   // selecao em andamento na tela (servico de acessibilidade)
     private var lastExt = 0L
+    private var padDownT = 0L
+    private val kbLoc = IntArray(2)
     private val tfKey: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     private val tfBold: Typeface = Typeface.DEFAULT_BOLD
     private var pal = Cfg.pal(ctx)
@@ -473,8 +475,18 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         val a = PointerAccess.inst ?: return
         selecting = a.begin(ov.sx(), ov.sy())
         ov.setHighlight(a.highlight())
-        if (selecting) { sel = true; ov.setSelecting(true); buzz() }
+        if (selecting) { sel = true; ov.setSelecting(true); buzz() } else ov.ring(false)
         invalidate()
+    }
+
+    /** toque rapido no modo ponteiro = clique onde esta a ponta da seta */
+    private fun doClick() {
+        val a = PointerAccess.inst ?: return
+        getLocationOnScreen(kbLoc)
+        val y = ov.sy()
+        if (y >= kbLoc[1]) { ov.ring(false); return }   // seta em cima do proprio teclado: nao clica
+        val ok = a.click(ov.sx(), y)
+        ov.ring(ok); buzz()
     }
 
     private fun extendScreenSel() {
@@ -501,7 +513,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             MotionEvent.ACTION_DOWN -> {
                 downX = x; downY = y; lastX = x; lastY = y; accX = 0f; accY = 0f; spaceSwipe = false
                 if (pad && padRect.contains(x, y)) {
-                    inPad = true; padMoved = false; px = x; py = y; buzz()
+                    inPad = true; padMoved = false; px = x; py = y; buzz(); padDownT = SystemClock.uptimeMillis()
                     if (scr()) { if (selMode) beginScreenSel() else h.postDelayed(padLong, 300) }
                     else if (selMode) startSel() else h.postDelayed(padLong, 320)
                     invalidate(); return true
@@ -548,7 +560,13 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 h.removeCallbacks(longTask); h.removeCallbacks(repTask); h.removeCallbacks(padLong); repRun = false
                 val up = e.actionMasked == MotionEvent.ACTION_UP
-                if (inPad) { inPad = false; endScreenSel(); sel = false; invalidate(); return true }
+                if (inPad) {
+                    inPad = false
+                    val tap = up && scr() && !padMoved && !selecting && !selMode && SystemClock.uptimeMillis() - padDownT < 300
+                    endScreenSel(); sel = false
+                    if (tap) doClick()
+                    invalidate(); return true
+                }
                 if (alts.isNotEmpty()) {
                     val s = down
                     if (up && s != null && s.type == ALT) {
@@ -636,7 +654,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         c.drawText(msg, padRect.centerX(), yy - 0.9f * paint.textSize, paint)
         paint.textSize = maxOf(12 * d, 3.2f * cq)
         c.drawText(
-            if (scr()) { if (selMode) "toque em Marcar para so mover a seta" else "segure parado e arraste para selecionar" }
+            if (scr()) { if (selMode) "toque em Marcar para voltar a clicar" else "toque = clicar  |  segure e arraste = selecionar" }
             else if (selMode) "toque em Marcar para so mover o cursor" else "segure para selecionar a palavra",
             padRect.centerX(), yy + 0.8f * paint.textSize, paint)
         if (!scr()) {

@@ -20,3 +20,8 @@ Sem as permissoes, o modo ponteiro continua como antes (mexe o cursor do campo).
 
 v5: segurar e arrastar tambem marca texto de mensagens ja escritas (WhatsApp, Instagram...): o trecho fica
 destacado e o botao Copiar copia so ele. O botao Recortar virou Apagar (apaga o texto marcado no campo).
+
+v6: toque rapido no modo ponteiro clica onde a seta esta (abrir, voltar, qualquer botao da tela).
+A marcacao de texto agora acha o texto mais perto da seta em qualquer janela e, se o app nao informa
+onde cada letra esta, marca o bloco de texto inteiro. Se o clique nao funcionar depois de atualizar,
+desligue e ligue de novo a acessibilidade do Ponteiro.
