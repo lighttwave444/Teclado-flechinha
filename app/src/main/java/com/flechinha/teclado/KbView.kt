@@ -63,6 +63,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     private var lastShift = 0L
     private var pad = false
     private var sel = false
+    private var selMode = true   // true: arrastar seleciona; false: arrastar so move o cursor
     private var keys: List<K> = emptyList()
     private var alts: List<K> = emptyList()
     private val popupRect = RectF()
@@ -222,6 +223,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     }
 
     private fun padRow(): List<K> = listOf(
+        k("Marcar", ACT, "mode") { sp = true },
         k("Tudo", ACT, "all") { sp = true },
         k("Copiar", ACT, "copy") { sp = true },
         k("Recortar", ACT, "cut") { sp = true }
@@ -255,6 +257,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         var y = topP + stripH + gapR
         if (pad) {
             padRect.set(sideP, y, w - sideP, y + 3 * keyH + 2 * gapR)
+            if (px == 0f && py == 0f) { px = padRect.centerX(); py = padRect.centerY() }
             y += 3 * keyH + 3 * gapR
             val pr = padRow(); place(pr, y, keyH); out.addAll(pr)
         } else {
@@ -347,6 +350,19 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         return true
     }
 
+    /** comeca uma selecao a partir do cursor: se ja havia texto marcado, volta o cursor para a ponta e arrasta daqui */
+    private fun startSel() {
+        val ic = svc.currentInputConnection ?: return
+        val req = ExtractedTextRequest()
+        req.hintMaxChars = 2000
+        val et = ic.getExtractedText(req, 0)
+        if (et != null && et.selectionStart >= 0 && et.selectionStart != et.selectionEnd) {
+            val end = et.startOffset + et.selectionEnd
+            ic.setSelection(end, end)
+        }
+        sel = true
+    }
+
     private fun press(kk: K) {
         when (kk.type) {
             CH -> {
@@ -365,13 +381,14 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
             }
             SPACE -> { commit(" "); if (shift == 1) shift = 0; auto() }
             ENTER -> { enter(); auto() }
-            PTR -> { pad = !pad; sel = false }
+            PTR -> { pad = !pad; sel = false; px = 0f; py = 0f }
             HIDE -> svc.requestHideSelf(0)
             ACT -> when (kk.v) {
                 "all" -> menu(android.R.id.selectAll)
                 "copy" -> menu(android.R.id.copy)
                 "cut" -> menu(android.R.id.cut)
                 "paste" -> menu(android.R.id.paste)
+                "mode" -> selMode = !selMode
             }
         }
         layoutKeys(); invalidate()
@@ -430,7 +447,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
                 downX = x; downY = y; lastX = x; lastY = y; accX = 0f; accY = 0f; spaceSwipe = false
                 if (pad && padRect.contains(x, y)) {
                     inPad = true; padMoved = false; px = x; py = y; buzz()
-                    h.postDelayed(padLong, 320)
+                    if (selMode) startSel() else h.postDelayed(padLong, 320)
                     invalidate(); return true
                 }
                 val kk = hit(keys, x, y); down = kk
@@ -551,17 +568,19 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
         paint.style = Paint.Style.FILL
         paint.color = mul(pal.txt, 0.7f); paint.textAlign = Paint.Align.CENTER; paint.typeface = tfKey
         paint.textSize = maxOf(14 * d, 3.8f * cq)
-        val msg = if (sel) "Selecionando: arraste para marcar o texto" else "Arraste para mover o cursor"
+        val msg = if (sel) "Selecionando: arraste para marcar o texto"
+            else if (selMode) "Pressione e arraste para selecionar" else "Arraste para mover o cursor"
         val yy = padRect.centerY() - (paint.descent() + paint.ascent()) / 2
         c.drawText(msg, padRect.centerX(), yy - 0.9f * paint.textSize, paint)
         paint.textSize = maxOf(12 * d, 3.2f * cq)
-        c.drawText("segure para selecionar a palavra", padRect.centerX(), yy + 0.8f * paint.textSize, paint)
-        if (inPad) {
+        c.drawText(if (selMode) "toque em Marcar para so mover o cursor" else "segure para selecionar a palavra",
+            padRect.centerX(), yy + 0.8f * paint.textSize, paint)
+        run {
             val ic = icons[IC_PTR]
             if (ic != null) {
                 val s = 6f * cq / 24f
                 c.save(); c.translate(px - 4 * s, py - 3 * s); c.scale(s, s)
-                paint.style = Paint.Style.FILL; paint.color = 0xFFFFFFFF.toInt(); c.drawPath(ic, paint)
+                paint.style = Paint.Style.FILL; paint.color = if (sel) acc else 0xFFFFFFFF.toInt(); c.drawPath(ic, paint)
                 paint.style = Paint.Style.STROKE; paint.strokeWidth = 1.6f; paint.strokeJoin = Paint.Join.ROUND
                 paint.color = 0xFF111111.toInt(); c.drawPath(ic, paint)
                 c.restore()
@@ -589,7 +608,7 @@ class KbView(ctx: Context, private val svc: KeyboardService) : View(ctx) {
     private fun drawKey(c: Canvas, kk: K) {
         val a = if (pad && kk.dim) 0.5f else 1f
         val pressed = kk === down
-        val active = (kk.type == SHIFT && shift > 0) || (kk.type == PTR && pad)
+        val active = (kk.type == SHIFT && shift > 0) || (kk.type == PTR && pad) || (kk.type == ACT && kk.v == "mode" && selMode)
         val isEnter = kk.type == ENTER
         val rad = if (kk.pill) kk.r.height() / 2 else 2.4f * cq
         val cx = kk.r.centerX(); val cy = kk.r.centerY()
