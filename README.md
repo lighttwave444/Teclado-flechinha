@@ -29,3 +29,8 @@ desligue e ligue de novo a acessibilidade do Ponteiro.
 v7: icone "Seta" no painel de atalhos. Ligado, a tela inteira vira touchpad (mesmo sem teclado):
 arrastar 1 dedo anda com a seta; dois toques clicam; segurar e arrastar marca o texto e copia ao soltar;
 arrastar com 2 dedos rola a tela onde a seta esta. Desligue pelo mesmo icone.
+
+v8: um toque so clica onde a seta esta (aperta o botao direto; se nao der, faz um toque de verdade).
+Faixa livre no topo da tela para puxar o painel de atalhos. Tres dedos tocando juntos desligam a seta,
+e ela tambem desliga sozinha quando a tela apaga. Depois de atualizar, desligue e ligue de novo a
+acessibilidade do Ponteiro para o Android liberar os gestos.

@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -37,18 +40,24 @@ class FreePointer(private val svc: PointerAccess) {
         return try {
             val m = svc.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val view = FView(svc)
+            val real = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            m.defaultDisplay.getRealMetrics(real)
+            // faixa livre no topo: o painel de atalhos continua puxavel e voce sempre consegue desligar a seta
+            val top = (56 * svc.resources.displayMetrics.density).toInt()
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT, real.heightPixels - top,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
             )
             params.gravity = Gravity.TOP or Gravity.START
+            params.y = top
+            if (Build.VERSION.SDK_INT >= 28) params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             m.addView(view, params)
             wm = m; v = view; lp = params
-            if (ox == 0f && oy == 0f) {
-                val dm = svc.resources.displayMetrics
-                ox = dm.widthPixels / 2f; oy = dm.heightPixels / 2f
-            }
+            if (ox == 0f && oy == 0f) { ox = real.widthPixels / 2f; oy = (real.heightPixels - top) / 2f }
             true
         } catch (e: Exception) { v = null; false }
     }
@@ -100,6 +109,7 @@ class FreePointer(private val svc: PointerAccess) {
         private var sly = 0f
         private var lastTapT = 0L
         private var lastExt = 0L
+        private var closing = false
         private val hold = Runnable { if (!moved && !scrollMode) beginSel() }
 
         private fun ring(ok: Boolean) { ringOk = ok; ringStart = SystemClock.uptimeMillis(); invalidate() }
@@ -134,11 +144,17 @@ class FreePointer(private val svc: PointerAccess) {
         }
 
         private fun doClick() {
+            val x = sx(); val y = sy()
+            // 1) aperta direto o botao que esta embaixo da seta
+            if (svc.clickNode(x, y)) { ring(true); return }
+            // 2) senao, faz um toque de verdade (a janela da seta sai da frente por um instante)
             pass(true)
-            val ok = svc.click(sx(), sy()) { pass(false) }
-            if (!ok) pass(false)
-            postDelayed({ pass(false) }, 800)
-            ring(ok)
+            postDelayed({
+                val ok = svc.click(x, y) { pass(false) }
+                if (!ok) pass(false)
+                ring(ok)
+            }, 130)
+            postDelayed({ pass(false) }, 900)
         }
 
         private fun doScroll() {
@@ -150,13 +166,26 @@ class FreePointer(private val svc: PointerAccess) {
             val x2 = (x1 + sdx * 1.6f).coerceIn(20f, w - 20f)
             val y2 = (y1 + sdy * 1.6f).coerceIn(20f, h - 20f)
             pass(true)
-            val ok = svc.swipe(x1, y1, x2, y2, 320L) { pass(false) }
-            if (!ok) pass(false)
-            postDelayed({ pass(false) }, 900)
-            ring(ok)
+            postDelayed({
+                val ok = svc.swipe(x1, y1, x2, y2, 320L) { pass(false) }
+                if (!ok) pass(false)
+                ring(ok)
+            }, 130)
+            postDelayed({ pass(false) }, 1000)
         }
 
         override fun onTouchEvent(e: MotionEvent): Boolean {
+            if (closing) return true
+            if (e.actionMasked == MotionEvent.ACTION_POINTER_DOWN && e.pointerCount >= 3) {
+                // tres dedos: desliga a seta
+                closing = true
+                removeCallbacks(hold)
+                Handler(Looper.getMainLooper()).post {
+                    svc.toggleFree()
+                    Toast.makeText(svc, "Seta desligada", Toast.LENGTH_SHORT).show()
+                }
+                return true
+            }
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downT = SystemClock.uptimeMillis(); downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
@@ -191,10 +220,8 @@ class FreePointer(private val svc: PointerAccess) {
                     val up = e.actionMasked == MotionEvent.ACTION_UP
                     if (selecting) { endSel(); lastTapT = 0L }
                     else if (scrollMode) { if (!scrollDone) { scrollDone = true; doScroll() }; lastTapT = 0L }
-                    else if (up && !moved && SystemClock.uptimeMillis() - downT < 250) {
-                        val now = SystemClock.uptimeMillis()
-                        if (lastTapT > 0L && now - lastTapT < 400) { lastTapT = 0L; doClick() } else lastTapT = now
-                    } else lastTapT = 0L
+                    else if (up && !moved && SystemClock.uptimeMillis() - downT < 300) doClick()
+                    else lastTapT = 0L
                     scrollMode = false
                 }
             }

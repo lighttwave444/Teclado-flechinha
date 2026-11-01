@@ -3,10 +3,12 @@ package com.flechinha.teclado
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.accessibilityservice.GestureDescription
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
@@ -44,11 +46,31 @@ class PointerAccess : AccessibilityService() {
 
     fun toggleFree(): Boolean {
         val f = free
-        if (f != null) { f.hide(); free = null; return false }
+        if (f != null) { f.hide(); free = null; unreg(); return false }
         val n = FreePointer(this)
         if (!n.show()) return false
         free = n
+        reg()
         return true
+    }
+
+    // a seta desliga sozinha quando a tela apaga (saida garantida)
+    private var rxOn = false
+    private val offRx = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) { if (free != null) toggleFree() }
+    }
+    private fun reg() {
+        if (rxOn) return
+        try {
+            val f = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(offRx, f, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(offRx, f)
+            rxOn = true
+        } catch (e: Exception) { }
+    }
+    private fun unreg() {
+        if (!rxOn) return
+        try { unregisterReceiver(offRx) } catch (e: Exception) { }
+        rxOn = false
     }
 
     private var margin = 0
@@ -64,8 +86,8 @@ class PointerAccess : AccessibilityService() {
         if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke(); free?.refresh() }
     }
     override fun onInterrupt() { }
-    override fun onUnbind(i: Intent?): Boolean { free?.hide(); free = null; inst = null; return super.onUnbind(i) }
-    override fun onDestroy() { free?.hide(); free = null; inst = null; super.onDestroy() }
+    override fun onUnbind(i: Intent?): Boolean { free?.hide(); free = null; unreg(); inst = null; return super.onUnbind(i) }
+    override fun onDestroy() { free?.hide(); free = null; unreg(); inst = null; super.onDestroy() }
 
     // ---------- clique ----------
 
@@ -193,7 +215,7 @@ class PointerAccess : AccessibilityService() {
     }
 
     /** procura em todas as janelas (de cima para baixo) o texto mais perto da ponta da seta */
-    private fun findNode(x: Int, y: Int): AccessibilityNodeInfo? {
+    private fun rootsAt(x: Int, y: Int): List<AccessibilityNodeInfo> {
         val roots = ArrayList<AccessibilityNodeInfo>()
         try {
             for (w in windows.sortedByDescending { it.layer }) {
@@ -206,11 +228,46 @@ class PointerAccess : AccessibilityService() {
             }
         } catch (e: Exception) { }
         rootInActiveWindow?.let { roots.add(it) }
-        for (r in roots) {
+        return roots
+    }
+
+    private fun findNode(x: Int, y: Int): AccessibilityNodeInfo? {
+        for (r in rootsAt(x, y)) {
             val n = pick(r, x, y)
             if (n != null) return n
         }
         return null
+    }
+
+    // ---------- clique direto no botao ----------
+
+    private var cN: AccessibilityNodeInfo? = null
+    private var cA = 0L
+
+    /** aperta o botao/link que esta embaixo da ponta da seta (funciona sem precisar do gesto de toque) */
+    fun clickNode(x: Int, y: Int): Boolean {
+        for (r in rootsAt(x, y)) {
+            cN = null; cA = Long.MAX_VALUE
+            scanClick(r, x, y, 0)
+            val n = cN
+            if (n != null) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        return false
+    }
+
+    private fun scanClick(n: AccessibilityNodeInfo, x: Int, y: Int, depth: Int) {
+        if (depth > 40) return
+        val b = Rect()
+        n.getBoundsInScreen(b)
+        if (!b.contains(x, y) || !n.isVisibleToUser) return
+        for (i in 0 until n.childCount) {
+            val c = n.getChild(i) ?: continue
+            scanClick(c, x, y, depth + 1)
+        }
+        if (n.isClickable && n.isEnabled) {
+            val a = b.width().toLong() * b.height()
+            if (a < cA) { cA = a; cN = n }
+        }
     }
 
     private fun pick(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
