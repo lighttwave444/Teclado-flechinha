@@ -17,7 +17,7 @@ import android.view.WindowManager
 import android.widget.Toast
 
 /**
- * Seta livre: a tela inteira vira touchpad (janela transparente de acessibilidade).
+ * Seta livre: a tela inteira (acima do teclado, se ele estiver aberto) vira touchpad (janela transparente de acessibilidade).
  *  - arrastar 1 dedo: anda com a seta
  *  - dois toques: clica onde a seta esta
  *  - segurar e arrastar: marca o texto e copia ao soltar
@@ -30,6 +30,32 @@ class FreePointer(private val svc: PointerAccess) {
     private var ox = 0f
     private var oy = 0f
     private val loc = IntArray(2)
+    private var topPx = 0
+    private var fullH = 0
+    private val h = Handler(Looper.getMainLooper())
+    // checagem de reserva: o teclado pode abrir/fechar sem avisar por evento
+    private val poll = object : Runnable {
+        override fun run() { if (v == null) return; fit(); h.postDelayed(this, 500) }
+    }
+
+    /**
+     * Encolhe a area da seta para ficar so acima do teclado (quando ele aparece) e
+     * volta para a tela inteira quando o teclado fecha. Assim a seta nao atrapalha as teclas.
+     */
+    fun fit() {
+        val view = v ?: return
+        val p = lp ?: return
+        val minH = (80 * svc.resources.displayMetrics.density).toInt()
+        val ime = svc.imeTop()
+        val bottom = if (ime > topPx + minH) ime else fullH
+        val nh = (bottom - topPx).coerceAtLeast(minH)
+        if (p.height == nh) return
+        p.height = nh
+        try { wm?.updateViewLayout(view, p) } catch (e: Exception) { return }
+        // mantem a seta dentro da area nova
+        oy = oy.coerceIn(0f, nh - 1f)
+        view.invalidate()
+    }
 
     val showing: Boolean get() = v != null
 
@@ -57,12 +83,16 @@ class FreePointer(private val svc: PointerAccess) {
             if (Build.VERSION.SDK_INT >= 28) params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             m.addView(view, params)
             wm = m; v = view; lp = params
+            topPx = top; fullH = real.heightPixels
             if (ox == 0f && oy == 0f) { ox = real.widthPixels / 2f; oy = (real.heightPixels - top) / 2f }
+            fit()
+            h.removeCallbacks(poll); h.postDelayed(poll, 500)
             true
         } catch (e: Exception) { v = null; false }
     }
 
     fun hide() {
+        h.removeCallbacks(poll)
         val view = v ?: return
         try { wm?.removeView(view) } catch (e: Exception) { }
         v = null

@@ -34,3 +34,7 @@ v8: um toque so clica onde a seta esta (aperta o botao direto; se nao der, faz u
 Faixa livre no topo da tela para puxar o painel de atalhos. Tres dedos tocando juntos desligam a seta,
 e ela tambem desliga sozinha quando a tela apaga. Depois de atualizar, desligue e ligue de novo a
 acessibilidade do Ponteiro para o Android liberar os gestos.
+
+v9: a seta nao atrapalha mais o teclado. Quando o teclado abre, a area de toque da seta encolhe e fica so
+acima dele; quando o teclado fecha, ela volta a ocupar a tela inteira. Depois de atualizar, desligue e ligue
+de novo a acessibilidade do Ponteiro (o Android precisa liberar o novo aviso de janelas).

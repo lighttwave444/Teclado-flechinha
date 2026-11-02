@@ -82,7 +82,24 @@ class PointerAccess : AccessibilityService() {
         super.onServiceConnected(); inst = this
         margin = (48 * resources.displayMetrics.density).toInt()
     }
+    /** topo (em pixels) da janela do teclado na tela, ou -1 se nenhum teclado esta aparecendo */
+    fun imeTop(): Int {
+        return try {
+            val r = Rect()
+            var top = -1
+            for (w in windows) {
+                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    w.getBoundsInScreen(r)
+                    if (r.height() > 0 && (top < 0 || r.top < top)) top = r.top
+                }
+            }
+            top
+        } catch (e: Exception) { -1 }
+    }
+
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
+        if (e != null && free != null && (e.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+                e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) free?.fit()
         if (e != null && e.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && virtual) { clearVirtual(); onClear?.invoke(); free?.refresh() }
     }
     override fun onInterrupt() { }
