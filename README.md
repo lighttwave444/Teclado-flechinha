@@ -38,3 +38,9 @@ acessibilidade do Ponteiro para o Android liberar os gestos.
 v9: a seta nao atrapalha mais o teclado. Quando o teclado abre, a area de toque da seta encolhe e fica so
 acima dele; quando o teclado fecha, ela volta a ocupar a tela inteira. Depois de atualizar, desligue e ligue
 de novo a acessibilidade do Ponteiro (o Android precisa liberar o novo aviso de janelas).
+
+v10: (1) na horizontal a seta agora vai ate o fim da tela (o tamanho e relido quando o celular gira).
+(2) Arrastar coisas: toque duas vezes e na segunda segure (vibra), depois arraste e solte: o app, icone ou item
+do sistema e arrastado ate onde voce soltou (aparece um rastro colorido). (3) Empurre a seta contra a borda da tela e
+solte: a tela rola para mostrar o que esta alem (apps recentes para o lado, listas para cima/baixo).
+Um toque so agora clica depois de uma pequena espera (0,3 s), para dar tempo do segundo toque.

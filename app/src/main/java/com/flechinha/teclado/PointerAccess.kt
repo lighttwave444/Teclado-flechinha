@@ -115,6 +115,34 @@ class PointerAccess : AccessibilityService() {
         return gesture(p, 60L, done)
     }
 
+    /**
+     * arrastar de verdade: segura o dedo parado no primeiro ponto (pressao longa, para "pegar" o item)
+     * e depois anda por todos os pontos do caminho. Serve para mover apps, icones e itens do sistema.
+     */
+    fun dragPath(pts: List<FloatArray>, moveMs: Long, done: () -> Unit): Boolean {
+        if (Build.VERSION.SDK_INT < 26 || pts.size < 2) return false
+        return try {
+            val p0 = Path(); p0.moveTo(pts[0][0], pts[0][1])
+            val s1 = GestureDescription.StrokeDescription(p0, 0L, 550L, true)
+            val cb1 = object : GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) {
+                    try {
+                        val p1 = Path(); p1.moveTo(pts[0][0], pts[0][1])
+                        for (i in 1 until pts.size) p1.lineTo(pts[i][0], pts[i][1])
+                        val s2 = s1.continueStroke(p1, 0L, moveMs, false)
+                        val cb2 = object : GestureResultCallback() {
+                            override fun onCompleted(g: GestureDescription?) { done() }
+                            override fun onCancelled(g: GestureDescription?) { done() }
+                        }
+                        if (!dispatchGesture(GestureDescription.Builder().addStroke(s2).build(), cb2, null)) done()
+                    } catch (e: Exception) { done() }
+                }
+                override fun onCancelled(g: GestureDescription?) { done() }
+            }
+            dispatchGesture(GestureDescription.Builder().addStroke(s1).build(), cb1, null)
+        } catch (e: Exception) { false }
+    }
+
     /** arrastar o dedo de um ponto a outro (rolagem) */
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long, done: (() -> Unit)? = null): Boolean {
         val p = Path()
