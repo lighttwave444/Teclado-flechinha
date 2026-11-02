@@ -14,6 +14,9 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -85,13 +88,22 @@ class PointerAccess : AccessibilityService() {
     /** topo (em pixels) da janela do teclado na tela, ou -1 se nenhum teclado esta aparecendo */
     fun imeTop(): Int {
         return try {
+            // se o teclado atual e este e ele esta escondido, nao ha teclado na tela
+            val def = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) ?: ""
+            if (def.startsWith(packageName) && !KeyboardService.visible) return -1
+            val real = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(real)
+            val dp = resources.displayMetrics.density
             val r = Rect()
             var top = -1
             for (w in windows) {
-                if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                    w.getBoundsInScreen(r)
-                    if (r.height() > 0 && (top < 0 || r.top < top)) top = r.top
-                }
+                if (w.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue
+                w.getBoundsInScreen(r)
+                // so vale janela de teclado de verdade: larga, com altura, encostada embaixo
+                if (r.height() < 100 * dp || r.width() < real.widthPixels * 0.6f) continue
+                if (r.top < real.heightPixels * 0.3f || r.bottom < real.heightPixels * 0.8f) continue
+                if (top < 0 || r.top < top) top = r.top
             }
             top
         } catch (e: Exception) { -1 }
@@ -189,6 +201,40 @@ class PointerAccess : AccessibilityService() {
         virtual = true; whole = true; nodeRect = RectF(b)
         vS = 0; vE = t.length; vText = t
         return true
+    }
+
+    /** a ponta da seta esta mesmo em cima de letras (nome, mensagem, campo)? No icone nao conta. */
+    fun onLabel(x: Int, y: Int): Boolean {
+        val n = findNode(x, y) ?: return false
+        val b = Rect(); n.getBoundsInScreen(b)
+        if (n.isEditable) return b.contains(x, y)
+        val t = n.text?.toString()
+        if (t.isNullOrEmpty()) return false      // so descricao (icone): nao e texto
+        val r = loadRects(n, t.length)
+        val pad = 8 * resources.displayMetrics.density
+        var any = false
+        for (q in r) {
+            if (q == null || q.width() <= 0f || q.height() <= 0f) continue
+            any = true
+            if (x >= q.left - pad && x <= q.right + pad && y >= q.top - pad && y <= q.bottom + pad) return true
+        }
+        return !any && b.contains(x, y)
+    }
+
+    /** tem algo clicavel ou "segurável" (icone, atalho, item) embaixo da seta? */
+    fun hasTarget(x: Int, y: Int): Boolean {
+        for (r in rootsAt(x, y)) {
+            cN = null; cA = Long.MAX_VALUE
+            scanClick(r, x, y, 0, true)
+            if (cN != null) return true
+        }
+        return false
+    }
+
+    /** segurar o dedo parado num ponto (abre o menu do icone) */
+    fun longPress(x: Int, y: Int, done: (() -> Unit)? = null): Boolean {
+        val p = Path(); p.moveTo(x.toFloat(), y.toFloat())
+        return gesture(p, 650L, done)
     }
 
     /** estica a selecao ate a letra que esta agora na ponta da seta */
@@ -300,16 +346,16 @@ class PointerAccess : AccessibilityService() {
         return false
     }
 
-    private fun scanClick(n: AccessibilityNodeInfo, x: Int, y: Int, depth: Int) {
+    private fun scanClick(n: AccessibilityNodeInfo, x: Int, y: Int, depth: Int, lc: Boolean = false) {
         if (depth > 40) return
         val b = Rect()
         n.getBoundsInScreen(b)
         if (!b.contains(x, y) || !n.isVisibleToUser) return
         for (i in 0 until n.childCount) {
             val c = n.getChild(i) ?: continue
-            scanClick(c, x, y, depth + 1)
+            scanClick(c, x, y, depth + 1, lc)
         }
-        if (n.isClickable && n.isEnabled) {
+        if ((n.isClickable || (lc && n.isLongClickable)) && n.isEnabled) {
             val a = b.width().toLong() * b.height()
             if (a < cA) { cA = a; cN = n }
         }

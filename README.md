@@ -44,3 +44,7 @@ v10: (1) na horizontal a seta agora vai ate o fim da tela (o tamanho e relido qu
 do sistema e arrastado ate onde voce soltou (aparece um rastro colorido). (3) Empurre a seta contra a borda da tela e
 solte: a tela rola para mostrar o que esta alem (apps recentes para o lado, listas para cima/baixo).
 Um toque so agora clica depois de uma pequena espera (0,3 s), para dar tempo do segundo toque.
+
+v11: segurar so copia quando a seta esta em cima das letras (nome do app, mensagem). Segurar em cima do icone
+pega o icone: arraste e solte para organizar (parado, abre o menu do icone). A area da seta so encolhe quando ha
+teclado de verdade na tela, entao nao fica mais presa numa altura com um app aberto.

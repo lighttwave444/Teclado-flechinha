@@ -9,8 +9,8 @@ android {
         applicationId = "com.flechinha.teclado"
         minSdk = 21
         targetSdk = 34
-        versionCode = 10
-        versionName = "10.0"
+        versionCode = 11
+        versionName = "11.0"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

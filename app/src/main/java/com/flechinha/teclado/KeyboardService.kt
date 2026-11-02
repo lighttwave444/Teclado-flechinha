@@ -8,6 +8,9 @@ import android.view.inputmethod.EditorInfo
 
 class KeyboardService : InputMethodService() {
     private var kb: KbView? = null
+    companion object { @Volatile var visible = false }   // o teclado esta aparecendo agora (a seta usa isso)
+
+    override fun onWindowShown() { super.onWindowShown(); visible = true }
 
     override fun onCreate() {
         super.onCreate()
@@ -26,9 +29,9 @@ class KeyboardService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) { super.onFinishInputView(finishingInput); kb?.closePad() }
 
-    override fun onWindowHidden() { super.onWindowHidden(); kb?.closePad() }
+    override fun onWindowHidden() { super.onWindowHidden(); visible = false; kb?.closePad() }
 
-    override fun onDestroy() { kb?.closePad(); super.onDestroy() }
+    override fun onDestroy() { visible = false; kb?.closePad(); super.onDestroy() }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)

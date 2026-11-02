@@ -166,7 +166,13 @@ class FreePointer(private val svc: PointerAccess) {
         private var edgeX = 0
         private var edgeY = 0
         private val hold = Runnable {
-            if (!moved && !scrollMode) { if (dragArmed) beginDrag() else beginSel() }
+            if (!moved && !scrollMode) {
+                val x = sx(); val y = sy()
+                if (dragArmed) beginDrag()
+                else if (svc.onLabel(x, y)) beginSel()          // em cima das letras: marca e copia
+                else if (svc.hasTarget(x, y)) beginDrag()       // em cima do icone: pega e move
+                else ring(false)
+            }
         }
 
         private fun ring(ok: Boolean) { ringOk = ok; ringStart = SystemClock.uptimeMillis(); invalidate() }
@@ -208,7 +214,18 @@ class FreePointer(private val svc: PointerAccess) {
             val pts = ArrayList(trail); trail.clear()
             if (pts.isEmpty() || pts.last()[0] != last[0] || pts.last()[1] != last[1]) pts.add(last)
             invalidate()
-            if (pts.size < 2) { ring(false); return }
+            if (pts.size < 2) {
+                // segurou o icone sem mover: segura de verdade (abre o menu do icone)
+                val x = last[0].toInt(); val y = last[1].toInt()
+                pass(true)
+                postDelayed({
+                    val ok = svc.longPress(x, y) { pass(false) }
+                    if (!ok) pass(false)
+                    ring(ok)
+                }, 130)
+                postDelayed({ pass(false) }, 1300)
+                return
+            }
             val moveMs = (SystemClock.uptimeMillis() - dragT).coerceIn(300L, 5000L)
             pass(true)
             postDelayed({
